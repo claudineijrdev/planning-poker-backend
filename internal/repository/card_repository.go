@@ -2,22 +2,21 @@ package repository
 
 import (
 	"fmt"
-	"strconv"
 	"sync"
 
 	"flash-cards/backend/internal/domain"
+
+	"github.com/google/uuid"
 )
 
 type CardRepository struct {
-	cards  []domain.Card
-	mutex  sync.RWMutex
-	nextID int
+	cards []domain.Card
+	mutex sync.RWMutex
 }
 
 func NewCardRepository() *CardRepository {
 	return &CardRepository{
-		cards:  make([]domain.Card, 0),
-		nextID: 0,
+		cards: make([]domain.Card, 0),
 	}
 }
 
@@ -31,8 +30,7 @@ func (r *CardRepository) Create(card domain.Card) domain.Card {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
-	card.ID = strconv.Itoa(r.nextID)
-	r.nextID++
+	card.ID = uuid.New().String()
 	r.cards = append(r.cards, card)
 	return card
 }

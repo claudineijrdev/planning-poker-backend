@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"flash-cards/backend/internal/domain"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -19,7 +21,6 @@ type SessionRepository struct {
 	sessionCodes map[string]string         // Code -> ID
 	users        map[string]domain.User    // UserID -> User
 	mutex        sync.RWMutex
-	nextUserID   int
 }
 
 func NewSessionRepository() *SessionRepository {
@@ -27,7 +28,6 @@ func NewSessionRepository() *SessionRepository {
 		sessions:     make(map[string]domain.Session),
 		sessionCodes: make(map[string]string),
 		users:        make(map[string]domain.User),
-		nextUserID:   0,
 	}
 }
 
@@ -37,9 +37,10 @@ func (r *SessionRepository) CreateSession() (domain.Session, string) {
 
 	code := r.generateUniqueCode()
 	session := domain.Session{
-		ID:        fmt.Sprintf("session_%d", len(r.sessions)),
+		ID:        uuid.New().String(),
 		Code:      code,
 		CreatedAt: time.Now(),
+		State:     domain.SessionStateOpen,
 		Cards:     make([]domain.Card, 0),
 		Users:     make([]domain.User, 0),
 	}
@@ -67,7 +68,7 @@ func (r *SessionRepository) GetSessionByCode(code string) (domain.Session, error
 	return session, nil
 }
 
-func (r *SessionRepository) AddUserToSession(code string, userName string) (domain.User, error) {
+func (r *SessionRepository) AddUserToSession(code string, user domain.User) (domain.User, error) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
 
@@ -81,19 +82,47 @@ func (r *SessionRepository) AddUserToSession(code string, userName string) (doma
 		return domain.User{}, fmt.Errorf("session not found")
 	}
 
-	user := domain.User{
-		ID:        fmt.Sprintf("user_%d", r.nextUserID),
-		Name:      userName,
-		JoinedAt:  time.Now(),
-		SessionID: session.ID,
-	}
-	r.nextUserID++
+	user.ID = uuid.New().String()
+	user.JoinedAt = time.Now()
 
 	session.Users = append(session.Users, user)
 	r.sessions[sessionID] = session
 	r.users[user.ID] = user
 
 	return user, nil
+}
+
+func (r *SessionRepository) UpdateSession(session domain.Session) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	if _, exists := r.sessions[session.ID]; !exists {
+		return fmt.Errorf("session not found")
+	}
+
+	r.sessions[session.ID] = session
+	return nil
+}
+
+func (r *SessionRepository) RemoveUserFromSession(sessionID string, userID string) error {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	session, exists := r.sessions[sessionID]
+	if !exists {
+		return fmt.Errorf("session not found")
+	}
+
+	for i, user := range session.Users {
+		if user.ID == userID {
+			session.Users = append(session.Users[:i], session.Users[i+1:]...)
+			r.sessions[sessionID] = session
+			delete(r.users, userID)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("user not found in session")
 }
 
 func (r *SessionRepository) GetSession(sessionID string) (domain.Session, error) {
