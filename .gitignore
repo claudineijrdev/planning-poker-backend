@@ -1,0 +1,29 @@
+# Binários e diretórios de build
+/build/
+/tmp/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Arquivos de log
+*.log
+
+# Arquivos temporários do sistema
+.DS_Store
+.env
+.env.local
+
+# Diretório de dependências
+/vendor/
+
+# Arquivos de IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Air
+tmp/
+build-errors.log 
