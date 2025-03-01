@@ -45,6 +45,7 @@ func (s *SessionService) CreateSession(req domain.CreateSessionRequest) (domain.
 	// Atualizar o ownerID da sessão
 	session.OwnerID = owner.ID
 	session.State = domain.SessionStateOpen
+	session.Users = append(session.Users, owner)
 
 	// Atualizar a sessão no repositório
 	err = s.sessionRepo.UpdateSession(session)
@@ -96,8 +97,8 @@ func (s *SessionService) GetSessionByCode(code string) (domain.Session, error) {
 	return s.sessionRepo.GetSessionByCode(code)
 }
 
-func (s *SessionService) CreateCardInSession(sessionID string, userID string, card domain.Card) (domain.Card, error) {
-	session, err := s.sessionRepo.GetSession(sessionID)
+func (s *SessionService) CreateCardInSession(code string, userID string, card domain.Card) (domain.Card, error) {
+	session, err := s.sessionRepo.GetSessionByCode(code)
 	if err != nil {
 		return domain.Card{}, ErrSessionNotFound
 	}
@@ -111,7 +112,7 @@ func (s *SessionService) CreateCardInSession(sessionID string, userID string, ca
 	}
 
 	card = s.cardRepo.Create(card)
-	err = s.sessionRepo.AddCardToSession(sessionID, card)
+	err = s.sessionRepo.AddCardToSession(session.ID, card)
 	if err != nil {
 		return domain.Card{}, err
 	}

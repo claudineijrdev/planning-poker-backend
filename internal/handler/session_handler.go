@@ -26,7 +26,7 @@ func (h *SessionHandler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/sessions/{code}", h.GetSessionByCode).Methods("GET")
 	router.HandleFunc("/sessions/{code}/state", h.UpdateSessionState).Methods("PUT")
 	router.HandleFunc("/sessions/{code}/leave", h.LeaveSession).Methods("POST")
-	router.HandleFunc("/sessions/{sessionId}/cards", h.CreateCardInSession).Methods("POST")
+	router.HandleFunc("/sessions/{code}/cards", h.CreateCardInSession).Methods("POST")
 }
 
 func (h *SessionHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
@@ -146,7 +146,7 @@ func (h *SessionHandler) CreateCardInSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	card, err := h.service.CreateCardInSession(params["sessionId"], userID, card)
+	card, err := h.service.CreateCardInSession(params["code"], userID, card)
 	if err != nil {
 		switch err {
 		case service.ErrSessionNotFound:
