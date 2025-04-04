@@ -2,11 +2,11 @@ package repository
 
 import (
 	"fmt"
-	"math/rand"
 	"sync"
 	"time"
 
 	"flash-cards/backend/internal/domain"
+	"flash-cards/backend/internal/random"
 
 	"github.com/google/uuid"
 )
@@ -164,7 +164,7 @@ func (r *SessionRepository) generateUniqueCode() string {
 func (r *SessionRepository) generateCode() string {
 	code := make([]byte, codeLength)
 	for i := range code {
-		code[i] = codeChars[rand.Intn(len(codeChars))]
+		code[i] = codeChars[random.Intn(len(codeChars))]
 	}
 	return string(code)
 }

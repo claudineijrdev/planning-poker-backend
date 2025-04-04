@@ -2,9 +2,7 @@ package main
 
 import (
 	"log"
-	"math/rand"
 	"net/http"
-	"time"
 
 	"flash-cards/backend/internal/handler"
 	"flash-cards/backend/internal/repository"
@@ -15,9 +13,6 @@ import (
 )
 
 func main() {
-	// Inicialização do gerador de números aleatórios
-	rand.Seed(time.Now().UnixNano())
-
 	// Inicialização dos repositórios
 	cardRepo := repository.NewCardRepository()
 	sessionRepo := repository.NewSessionRepository()
