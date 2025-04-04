@@ -20,10 +20,12 @@ func main() {
 	// Inicialização dos serviços
 	cardService := service.NewCardService(cardRepo)
 	sessionService := service.NewSessionService(sessionRepo, cardRepo)
+	websocketService := service.NewWebsocketService()
 
 	// Inicialização dos handlers
-	cardHandler := handler.NewCardHandler(cardService)
-	sessionHandler := handler.NewSessionHandler(sessionService)
+	cardHandler := handler.NewCardHandler(cardService, websocketService)
+	sessionHandler := handler.NewSessionHandler(sessionService, websocketService)
+	websocketHandler := handler.NewWebsocketHandler(websocketService)
 
 	// Configuração do router
 	router := mux.NewRouter()
@@ -31,12 +33,13 @@ func main() {
 	// Registro das rotas
 	cardHandler.RegisterRoutes(router)
 	sessionHandler.RegisterRoutes(router)
+	websocketHandler.RegisterRoutes(router)
 
 	// Configuração do CORS
 	c := cors.New(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:5173"},
+		AllowedOrigins:   []string{"http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:5500"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "User-ID", "Authorization"},
+		AllowedHeaders:   []string{"Content-Type", "User-ID", "Authorization", "Origin"},
 		AllowCredentials: true,
 		Debug:            true,
 	})

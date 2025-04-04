@@ -11,12 +11,14 @@ import (
 )
 
 type SessionHandler struct {
-	service *service.SessionService
+	service           *service.SessionService
+	websocketService  *service.WebsocketService
 }
 
-func NewSessionHandler(service *service.SessionService) *SessionHandler {
+func NewSessionHandler(service *service.SessionService, websocketService *service.WebsocketService) *SessionHandler {
 	return &SessionHandler{
-		service: service,
+		service:           service,
+		websocketService:  websocketService,
 	}
 }
 
@@ -27,6 +29,7 @@ func (h *SessionHandler) RegisterRoutes(router *mux.Router) {
 	router.HandleFunc("/sessions/{code}/state", h.UpdateSessionState).Methods("PUT")
 	router.HandleFunc("/sessions/{code}/leave", h.LeaveSession).Methods("POST")
 	router.HandleFunc("/sessions/{code}/cards", h.CreateCardInSession).Methods("POST")
+	router.HandleFunc("/sessions/{code}/reset-votes", h.ResetSessionVotes).Methods("POST")
 }
 
 func (h *SessionHandler) CreateSession(w http.ResponseWriter, r *http.Request) {
@@ -66,6 +69,9 @@ func (h *SessionHandler) JoinSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Broadcast da atualização para todos os clientes conectados à sessão
+	h.websocketService.BroadcastUserUpdate(params["code"], user, "join")
+
 	respondWithJSON(w, http.StatusOK, user)
 }
 
@@ -96,6 +102,10 @@ func (h *SessionHandler) UpdateSessionState(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
+	// Obter a sessão atualizada para broadcast
+	session, _ := h.service.GetSessionByCode(params["code"])
+	h.websocketService.BroadcastSession(session)
+
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Session state updated successfully"})
 }
 
@@ -107,6 +117,10 @@ func (h *SessionHandler) LeaveSession(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Obter a sessão antes de remover o usuário para ter as informações do usuário
+	session, _ := h.service.GetSessionByCode(params["code"])
+	user := session.GetUser(userID)
+
 	err := h.service.LeaveSession(params["code"], userID)
 	if err != nil {
 		switch err {
@@ -116,6 +130,11 @@ func (h *SessionHandler) LeaveSession(w http.ResponseWriter, r *http.Request) {
 			respondWithError(w, http.StatusInternalServerError, err.Error())
 		}
 		return
+	}
+
+	// Broadcast da atualização para todos os clientes conectados à sessão
+	if user != nil {
+		h.websocketService.BroadcastUserUpdate(params["code"], *user, "leave")
 	}
 
 	respondWithJSON(w, http.StatusOK, map[string]string{"message": "Left session successfully"})
@@ -161,5 +180,31 @@ func (h *SessionHandler) CreateCardInSession(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	// Broadcast da atualização para todos os clientes conectados à sessão
+	h.websocketService.BroadcastCard(params["code"], card)
+
 	respondWithJSON(w, http.StatusCreated, card)
+}
+
+func (h *SessionHandler) ResetSessionVotes(w http.ResponseWriter, r *http.Request) {
+	params := mux.Vars(r)
+	sessionCode := params["sessionCode"]
+	
+	cards, err := h.service.ResetSessionVotes(sessionCode)
+	if err != nil {
+		switch err {
+		case service.ErrSessionNotFound:
+			respondWithError(w, http.StatusNotFound, err.Error())
+		default:
+			respondWithError(w, http.StatusInternalServerError, err.Error())
+		}
+		return
+	}
+
+	// Broadcast da atualização para todos os clientes conectados à sessão
+	for _, card := range cards {
+		h.websocketService.BroadcastCard(sessionCode, card)
+	}
+
+	respondWithJSON(w, http.StatusOK, cards)
 }

@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Teste de WebSocket</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .panel {
+            flex: 1;
+            border: 1px solid #ccc;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .form-group {
+            margin-bottom: 10px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+        }
+        input, select {
+            width: 100%;
+            padding: 8px;
+            margin-bottom: 10px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 15px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button.danger {
+            background-color: #f44336;
+        }
+        button.danger:hover {
+            background-color: #d32f2f;
+        }
+        pre {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ccc;
+            padding: 10px;
+            background-color: #f5f5f5;
+            white-space: pre-wrap;
+        }
+        .status {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+        }
+        .connected {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .disconnected {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .debug-info {
+            background-color: #f8f9fa;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-top: 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Teste de WebSocket - Planning Poker</h1>
+    
+    <div class="status" id="connectionStatus">
+        <strong>Status:</strong> Desconectado
+    </div>
+    
+    <div class="container">
+        <div class="panel">
+            <h2>Conexão WebSocket</h2>
+            <div class="form-group">
+                <label>Código da Sessão:</label>
+                <input type="text" id="sessionCode" value="ABC123">
+                <button onclick="connect()">Conectar</button>
+                <button class="danger" onclick="disconnect()">Desconectar</button>
+            </div>
+            
+            <h2>Sessão</h2>
+            <div class="form-group">
+                <label>Nome do Proprietário:</label>
+                <input type="text" id="ownerName" value="João Silva">
+                <button onclick="createSession()">Criar Sessão</button>
+                <button onclick="testCurlCreateSession()">Testar com Curl</button>
+            </div>
+            
+            <div class="form-group">
+                <label>Nome do Usuário:</label>
+                <input type="text" id="userName" value="Maria Santos">
+                <button onclick="joinSession()">Entrar na Sessão</button>
+            </div>
+            
+            <div class="form-group">
+                <label>Estado da Sessão:</label>
+                <select id="sessionState">
+                    <option value="OPEN">Aberta</option>
+                    <option value="CLOSED">Fechada</option>
+                </select>
+                <button onclick="updateSessionState()">Atualizar Estado</button>
+            </div>
+            
+            <div class="form-group">
+                <button onclick="leaveSession()">Sair da Sessão</button>
+            </div>
+            
+            <div class="form-group">
+                <h3>Solução para Problemas de CORS</h3>
+                <p>Se você estiver enfrentando problemas de CORS, você pode:</p>
+                <ol>
+                    <li>Usar o botão "Testar com Curl" para testar a API diretamente</li>
+                    <li>Configurar um servidor local simples para servir este arquivo HTML</li>
+                    <li>Verificar a configuração de CORS do servidor</li>
+                </ol>
+                <button onclick="showLocalServerInstructions()">Mostrar Instruções para Servidor Local</button>
+                <button onclick="checkCorsConfiguration()">Verificar Configuração de CORS</button>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>Cards</h2>
+            <div class="form-group">
+                <label>Título:</label>
+                <input type="text" id="cardTitle" value="Implementar login">
+                <label>Descrição:</label>
+                <input type="text" id="cardDescription" value="Criar sistema de autenticação">
+                <button onclick="createCard()">Criar Card</button>
+            </div>
+            
+            <div class="form-group">
+                <label>ID do Card:</label>
+                <input type="text" id="cardId">
+                <label>Pontuação:</label>
+                <input type="number" id="voteScore" value="5">
+                <button onclick="vote()">Votar</button>
+            </div>
+            
+            <div class="form-group">
+                <button onclick="closeVoting()">Fechar Votação</button>
+                <button onclick="resetSessionVotings()">Resetar Votações</button>
+            </div>
+        </div>
+        
+        <div class="panel">
+            <h2>Mensagens Recebidas</h2>
+            <pre id="messages"></pre>
+            
+            <div class="debug-info">
+                <h3>Informações de Depuração</h3>
+                <div id="debugInfo"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let currentSession = null;
+        let currentUser = null;
+        
+        // URL base do servidor
+        const API_BASE_URL = 'http://localhost:3001';
+        
+        // URL do proxy CORS (se disponível)
+        const CORS_PROXY_URL = 'https://cors-anywhere.herokuapp.com/';
+        
+        // Função para verificar se o servidor está online
+        async function checkServerStatus() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/cards`, {
+                    method: 'GET',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    logDebugInfo('Servidor está online e respondendo');
+                    return true;
+                } else {
+                    logDebugInfo(`Servidor retornou status: ${response.status}`);
+                    return false;
+                }
+            } catch (error) {
+                logDebugInfo(`Erro ao verificar servidor: ${error.message}`);
+                return false;
+            }
+        }
+        
+        // Função para verificar a configuração de CORS do servidor
+        async function checkCorsConfiguration() {
+            logDebugInfo('Verificando configuração de CORS do servidor...');
+            
+            try {
+                // Fazer uma requisição OPTIONS para verificar os cabeçalhos de CORS
+                const response = await fetch(`${API_BASE_URL}/sessions`, {
+                    method: 'OPTIONS',
+                    headers: {
+                        'Origin': window.location.origin
+                    }
+                });
+                
+                logDebugInfo(`Resposta OPTIONS: ${response.status} ${response.statusText}`);
+                
+                // Verificar os cabeçalhos de CORS
+                const corsHeaders = {
+                    'Access-Control-Allow-Origin': response.headers.get('Access-Control-Allow-Origin'),
+                    'Access-Control-Allow-Methods': response.headers.get('Access-Control-Allow-Methods'),
+                    'Access-Control-Allow-Headers': response.headers.get('Access-Control-Allow-Headers')
+                };
+                
+                logDebugInfo(`Cabeçalhos CORS: ${JSON.stringify(corsHeaders)}`);
+                
+                // Verificar se a origem atual está permitida
+                const allowedOrigin = corsHeaders['Access-Control-Allow-Origin'];
+                if (allowedOrigin && (allowedOrigin === '*' || allowedOrigin === window.location.origin)) {
+                    logDebugInfo('CORS está configurado corretamente para a origem atual');
+                    return true;
+                } else {
+                    logDebugInfo(`CORS não está configurado para a origem atual: ${window.location.origin}`);
+                    logDebugInfo(`Origens permitidas: ${allowedOrigin}`);
+                    return false;
+                }
+            } catch (error) {
+                logDebugInfo(`Erro ao verificar CORS: ${error.message}`);
+                return false;
+            }
+        }
+        
+        // Verificar status do servidor e configuração de CORS ao carregar a página
+        window.onload = function() {
+            checkServerStatus();
+            checkCorsConfiguration();
+        };
+        
+        function connect() {
+            const sessionCode = document.getElementById('sessionCode').value;
+            if (!sessionCode) {
+                alert('Por favor, insira um código de sessão');
+                return;
+            }
+            
+            try {
+                ws = new WebSocket(`ws://localhost:3001/ws/${sessionCode}`);
+                
+                ws.onopen = function() {
+                    logMessage('Conectado ao servidor WebSocket');
+                    document.getElementById('connectionStatus').className = 'status connected';
+                    document.getElementById('connectionStatus').innerHTML = '<strong>Status:</strong> Conectado';
+                };
+                
+                ws.onmessage = function(event) {
+                    logMessage(`Mensagem recebida: ${event.data}`);
+                    
+                    // Tentar analisar a mensagem como JSON
+                    try {
+                        const data = JSON.parse(event.data);
+                        handleWebSocketMessage(data);
+                    } catch (e) {
+                        // Se não for JSON, apenas loga a mensagem
+                    }
+                };
+                
+                ws.onclose = function() {
+                    logMessage('Desconectado do servidor WebSocket');
+                    document.getElementById('connectionStatus').className = 'status disconnected';
+                    document.getElementById('connectionStatus').innerHTML = '<strong>Status:</strong> Desconectado';
+                    ws = null;
+                };
+                
+                ws.onerror = function(error) {
+                    logMessage(`Erro: ${error.message}`);
+                    logDebugInfo(`Erro WebSocket: ${error.message}`);
+                };
+            } catch (error) {
+                logMessage(`Erro ao criar conexão WebSocket: ${error.message}`);
+                logDebugInfo(`Erro ao criar conexão WebSocket: ${error.message}`);
+            }
+        }
+        
+        function disconnect() {
+            if (ws) {
+                ws.close();
+            }
+        }
+        
+        function logMessage(message) {
+            const messagesDiv = document.getElementById('messages');
+            const timestamp = new Date().toLocaleTimeString();
+            messagesDiv.innerHTML += `[${timestamp}] ${message}\n`;
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+        
+        function logDebugInfo(message) {
+            const debugDiv = document.getElementById('debugInfo');
+            const timestamp = new Date().toLocaleTimeString();
+            debugDiv.innerHTML += `[${timestamp}] ${message}<br>`;
+        }
+        
+        function handleWebSocketMessage(data) {
+            // Atualizar informações da sessão se necessário
+            if (data.code && data.id) {
+                currentSession = data;
+                document.getElementById('sessionCode').value = data.code;
+            }
+            
+            // Atualizar informações do usuário se necessário
+            if (data.id && data.name && data.role) {
+                currentUser = data;
+            }
+            
+            // Atualizar ID do card se for uma atualização de card
+            if (data.id && data.title && !data.code) {
+                document.getElementById('cardId').value = data.id;
+            }
+        }
+        
+        // Funções para interagir com a API REST
+        
+        async function createSession() {
+            const ownerName = document.getElementById('ownerName').value;
+            
+            // Verificar se o servidor está online
+            const serverOnline = await checkServerStatus();
+            if (!serverOnline) {
+                logMessage('Servidor não está respondendo. Verifique se está em execução.');
+                return;
+            }
+            
+            logDebugInfo(`Tentando criar sessão com proprietário: ${ownerName}`);
+            
+            // Preparar o corpo da requisição
+            const requestBody = { ownerName };
+            logDebugInfo(`Corpo da requisição: ${JSON.stringify(requestBody)}`);
+            
+            try {
+                // Tentar com fetch padrão
+                logDebugInfo(`Enviando requisição para ${API_BASE_URL}/sessions`);
+                
+                const response = await fetch(`${API_BASE_URL}/sessions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify(requestBody)
+                });
+                
+                logDebugInfo(`Resposta recebida: ${response.status} ${response.statusText}`);
+                
+                // Tentar ler o corpo da resposta mesmo se não for bem-sucedida
+                let responseText;
+                try {
+                    responseText = await response.text();
+                    logDebugInfo(`Corpo da resposta: ${responseText}`);
+                } catch (e) {
+                    logDebugInfo(`Erro ao ler corpo da resposta: ${e.message}`);
+                }
+                
+                // Tentar analisar como JSON se possível
+                let data;
+                try {
+                    data = JSON.parse(responseText);
+                } catch (e) {
+                    logDebugInfo(`Resposta não é JSON válido: ${e.message}`);
+                    data = { error: "Resposta não é JSON válido" };
+                }
+                
+                if (response.ok) {
+                    logMessage(`Sessão criada: ${data.code}`);
+                    currentSession = data.session;
+                    currentUser = data.session.users.find(u => u.role === 'OWNER');
+                    document.getElementById('sessionCode').value = data.code;
+                    
+                    // Conectar ao WebSocket após criar a sessão
+                    connect();
+                } else {
+                    logMessage(`Erro ao criar sessão: ${data.error || 'Erro desconhecido'}`);
+                    logDebugInfo(`Erro detalhado: ${JSON.stringify(data)}`);
+                    
+                    // Tentar com proxy CORS se disponível
+                    logDebugInfo('Tentando com proxy CORS...');
+                    try {
+                        const proxyResponse = await fetch(`${CORS_PROXY_URL}${API_BASE_URL}/sessions`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Accept': 'application/json',
+                                'X-Requested-With': 'XMLHttpRequest'
+                            },
+                            body: JSON.stringify(requestBody)
+                        });
+                        
+                        logDebugInfo(`Resposta do proxy: ${proxyResponse.status} ${proxyResponse.statusText}`);
+                        
+                        const proxyData = await proxyResponse.json();
+                        
+                        if (proxyResponse.ok) {
+                            logMessage(`Sessão criada (via proxy): ${proxyData.code}`);
+                            currentSession = proxyData.session;
+                            currentUser = proxyData.session.users.find(u => u.role === 'OWNER');
+                            document.getElementById('sessionCode').value = proxyData.code;
+                            
+                            // Conectar ao WebSocket após criar a sessão
+                            connect();
+                        } else {
+                            logMessage(`Erro ao criar sessão (via proxy): ${proxyData.error}`);
+                            
+                            // Tentar método alternativo se o primeiro falhar
+                            logDebugInfo('Tentando método alternativo para criar sessão...');
+                            try {
+                                const xhr = new XMLHttpRequest();
+                                xhr.open('POST', `${API_BASE_URL}/sessions`, true);
+                                xhr.setRequestHeader('Content-Type', 'application/json');
+                                xhr.setRequestHeader('Accept', 'application/json');
+                                
+                                xhr.onload = function() {
+                                    logDebugInfo(`XHR Status: ${xhr.status} ${xhr.statusText}`);
+                                    logDebugInfo(`XHR Response: ${xhr.responseText}`);
+                                    
+                                    if (xhr.status >= 200 && xhr.status < 300) {
+                                        try {
+                                            const xhrData = JSON.parse(xhr.responseText);
+                                            logMessage(`Sessão criada (via XHR): ${xhrData.code}`);
+                                            currentSession = xhrData.session;
+                                            currentUser = xhrData.session.users.find(u => u.role === 'OWNER');
+                                            document.getElementById('sessionCode').value = xhrData.code;
+                                            
+                                            // Conectar ao WebSocket após criar a sessão
+                                            connect();
+                                        } catch (e) {
+                                            logMessage(`Erro ao processar resposta XHR: ${e.message}`);
+                                        }
+                                    } else {
+                                        logMessage(`Erro XHR ao criar sessão: ${xhr.status} ${xhr.statusText}`);
+                                    }
+                                };
+                                
+                                xhr.onerror = function() {
+                                    logMessage('Erro de rede na requisição XHR');
+                                };
+                                
+                                xhr.send(JSON.stringify(requestBody));
+                            } catch (xhrError) {
+                                logMessage(`Erro ao tentar método alternativo: ${xhrError.message}`);
+                            }
+                        }
+                    } catch (proxyError) {
+                        logMessage(`Erro ao tentar com proxy CORS: ${proxyError.message}`);
+                        logDebugInfo(`Erro completo do proxy: ${proxyError}`);
+                        
+                        // Tentar com URL absoluta
+                        logDebugInfo('Tentando com URL absoluta...');
+                        try {
+                            const absoluteUrl = new URL('/sessions', API_BASE_URL).href;
+                            logDebugInfo(`URL absoluta: ${absoluteUrl}`);
+                            
+                            const response = await fetch(absoluteUrl, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                    'Accept': 'application/json'
+                                },
+                                body: JSON.stringify(requestBody)
+                            });
+                            
+                            logDebugInfo(`Resposta URL absoluta: ${response.status} ${response.statusText}`);
+                            
+                            const data = await response.json();
+                            
+                            if (response.ok) {
+                                logMessage(`Sessão criada (via URL absoluta): ${data.code}`);
+                                currentSession = data.session;
+                                currentUser = data.session.users.find(u => u.role === 'OWNER');
+                                document.getElementById('sessionCode').value = data.code;
+                                
+                                // Conectar ao WebSocket após criar a sessão
+                                connect();
+                            } else {
+                                logMessage(`Erro ao criar sessão (URL absoluta): ${data.error}`);
+                            }
+                        } catch (absoluteError) {
+                            logMessage(`Erro com URL absoluta: ${absoluteError.message}`);
+                        }
+                    }
+                }
+            } catch (error) {
+                logMessage(`Erro na requisição: ${error.message}`);
+                logDebugInfo(`Erro completo: ${error}`);
+                
+                // Tentar com URL absoluta
+                logDebugInfo('Tentando com URL absoluta...');
+                try {
+                    const absoluteUrl = new URL('/sessions', API_BASE_URL).href;
+                    logDebugInfo(`URL absoluta: ${absoluteUrl}`);
+                    
+                    const response = await fetch(absoluteUrl, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify(requestBody)
+                    });
+                    
+                    logDebugInfo(`Resposta URL absoluta: ${response.status} ${response.statusText}`);
+                    
+                    const data = await response.json();
+                    
+                    if (response.ok) {
+                        logMessage(`Sessão criada (via URL absoluta): ${data.code}`);
+                        currentSession = data.session;
+                        currentUser = data.session.users.find(u => u.role === 'OWNER');
+                        document.getElementById('sessionCode').value = data.code;
+                        
+                        // Conectar ao WebSocket após criar a sessão
+                        connect();
+                    } else {
+                        logMessage(`Erro ao criar sessão (URL absoluta): ${data.error}`);
+                    }
+                } catch (absoluteError) {
+                    logMessage(`Erro com URL absoluta: ${absoluteError.message}`);
+                }
+            }
+        }
+        
+        async function joinSession() {
+            const sessionCode = document.getElementById('sessionCode').value;
+            const userName = document.getElementById('userName').value;
+            
+            // Verificar se o servidor está online
+            const serverOnline = await checkServerStatus();
+            if (!serverOnline) {
+                logMessage('Servidor não está respondendo. Verifique se está em execução.');
+                return;
+            }
+            
+            logDebugInfo(`Tentando entrar na sessão ${sessionCode} com usuário: ${userName}`);
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/sessions/${sessionCode}/join`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ userName })
+                });
+                
+                logDebugInfo(`Resposta recebida: ${response.status} ${response.statusText}`);
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logMessage(`Usuário ${userName} entrou na sessão`);
+                    currentUser = data;
+                    
+                    // Conectar ao WebSocket se ainda não estiver conectado
+                    if (!ws) {
+                        connect();
+                    }
+                } else {
+                    logMessage(`Erro ao entrar na sessão: ${data.error}`);
+                    logDebugInfo(`Erro detalhado: ${JSON.stringify(data)}`);
+                }
+            } catch (error) {
+                logMessage(`Erro na requisição: ${error.message}`);
+                logDebugInfo(`Erro completo: ${error}`);
+            }
+        }
+        
+        async function updateSessionState() {
+            const sessionCode = document.getElementById('sessionCode').value;
+            const state = document.getElementById('sessionState').value;
+            
+            if (!currentUser) {
+                logMessage('Você precisa estar logado para atualizar o estado da sessão');
+                return;
+            }
+            
+            // Verificar se o servidor está online
+            const serverOnline = await checkServerStatus();
+            if (!serverOnline) {
+                logMessage('Servidor não está respondendo. Verifique se está em execução.');
+                return;
+            }
+            
+            logDebugInfo(`Tentando atualizar estado da sessão ${sessionCode} para: ${state}`);
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/sessions/${sessionCode}/state`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'User-ID': currentUser.id
+                    },
+                    body: JSON.stringify({ state })
+                });
+                
+                logDebugInfo(`Resposta recebida: ${response.status} ${response.statusText}`);
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logMessage(`Estado da sessão atualizado para: ${state}`);
+                } else {
+                    logMessage(`Erro ao atualizar estado: ${data.error}`);
+                    logDebugInfo(`Erro detalhado: ${JSON.stringify(data)}`);
+                }
+            } catch (error) {
+                logMessage(`Erro na requisição: ${error.message}`);
+                logDebugInfo(`Erro completo: ${error}`);
+            }
+        }
+        
+        async function leaveSession() {
+            const sessionCode = document.getElementById('sessionCode').value;
+            
+            if (!currentUser) {
+                logMessage('Você precisa estar logado para sair da sessão');
+                return;
+            }
+            
+            // Verificar se o servidor está online
+            const serverOnline = await checkServerStatus();
+            if (!serverOnline) {
+                logMessage('Servidor não está respondendo. Verifique se está em execução.');
+                return;
+            }
+            
+            logDebugInfo(`Tentando sair da sessão ${sessionCode}`);
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/sessions/${sessionCode}/leave`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'User-ID': currentUser.id
+                    }
+                });
+                
+                logDebugInfo(`Resposta recebida: ${response.status} ${response.statusText}`);
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logMessage(`Usuário saiu da sessão`);
+                    currentUser = null;
+                } else {
+                    logMessage(`Erro ao sair da sessão: ${data.error}`);
+                    logDebugInfo(`Erro detalhado: ${JSON.stringify(data)}`);
+                }
+            } catch (error) {
+                logMessage(`Erro na requisição: ${error.message}`);
+                logDebugInfo(`Erro completo: ${error}`);
+            }
+        }
+        
+        async function createCard() {
+            const sessionCode = document.getElementById('sessionCode').value;
+            const title = document.getElementById('cardTitle').value;
+            const description = document.getElementById('cardDescription').value;
+            
+            if (!currentUser) {
+                logMessage('Você precisa estar logado para criar um card');
+                return;
+            }
+            
+            // Verificar se o servidor está online
+            const serverOnline = await checkServerStatus();
+            if (!serverOnline) {
+                logMessage('Servidor não está respondendo. Verifique se está em execução.');
+                return;
+            }
+            
+            logDebugInfo(`Tentando criar card na sessão ${sessionCode}: ${title}`);
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/sessions/${sessionCode}/cards`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json',
+                        'User-ID': currentUser.id
+                    },
+                    body: JSON.stringify({
+                        title,
+                        description,
+                        votes: [],
+                        result: { average: 0, distribution: {} },
+                        closed: false
+                    })
+                });
+                
+                logDebugInfo(`Resposta recebida: ${response.status} ${response.statusText}`);
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logMessage(`Card criado: ${data.id}`);
+                    document.getElementById('cardId').value = data.id;
+                } else {
+                    logMessage(`Erro ao criar card: ${data.error}`);
+                    logDebugInfo(`Erro detalhado: ${JSON.stringify(data)}`);
+                }
+            } catch (error) {
+                logMessage(`Erro na requisição: ${error.message}`);
+                logDebugInfo(`Erro completo: ${error}`);
+            }
+        }
+        
+        async function vote() {
+            const cardId = document.getElementById('cardId').value;
+            const score = document.getElementById('voteScore').value;
+            
+            if (!cardId) {
+                logMessage('Por favor, insira o ID do card');
+                return;
+            }
+            
+            // Verificar se o servidor está online
+            const serverOnline = await checkServerStatus();
+            if (!serverOnline) {
+                logMessage('Servidor não está respondendo. Verifique se está em execução.');
+                return;
+            }
+            
+            logDebugInfo(`Tentando votar no card ${cardId} com pontuação: ${score}`);
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/cards/${cardId}/vote`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Accept': 'application/json'
+                    },
+                    body: JSON.stringify({ score: parseInt(score) })
+                });
+                
+                logDebugInfo(`Resposta recebida: ${response.status} ${response.statusText}`);
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logMessage(`Votação registrada: ${score} pontos`);
+                } else {
+                    logMessage(`Erro ao votar: ${data.error}`);
+                    logDebugInfo(`Erro detalhado: ${JSON.stringify(data)}`);
+                }
+            } catch (error) {
+                logMessage(`Erro na requisição: ${error.message}`);
+                logDebugInfo(`Erro completo: ${error}`);
+            }
+        }
+        
+        async function closeVoting() {
+            const cardId = document.getElementById('cardId').value;
+            
+            if (!cardId) {
+                logMessage('Por favor, insira o ID do card');
+                return;
+            }
+            
+            // Verificar se o servidor está online
+            const serverOnline = await checkServerStatus();
+            if (!serverOnline) {
+                logMessage('Servidor não está respondendo. Verifique se está em execução.');
+                return;
+            }
+            
+            logDebugInfo(`Tentando fechar votação do card ${cardId}`);
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/cards/${cardId}/close`, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                logDebugInfo(`Resposta recebida: ${response.status} ${response.statusText}`);
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logMessage(`Votação fechada para o card: ${cardId}`);
+                } else {
+                    logMessage(`Erro ao fechar votação: ${data.error}`);
+                    logDebugInfo(`Erro detalhado: ${JSON.stringify(data)}`);
+                }
+            } catch (error) {
+                logMessage(`Erro na requisição: ${error.message}`);
+                logDebugInfo(`Erro completo: ${error}`);
+            }
+        }
+        
+        async function resetSessionVotings() {
+            const sessionCode = document.getElementById('sessionCode').value;
+            
+            if (!sessionCode) {
+                logMessage('Por favor, insira o código da sessão');
+                return;
+            }
+            
+            // Verificar se o servidor está online
+            const serverOnline = await checkServerStatus();
+            if (!serverOnline) {
+                logMessage('Servidor não está respondendo. Verifique se está em execução.');
+                return;
+            }
+            
+            logDebugInfo(`Tentando resetar votações da sessão ${sessionCode}`);
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/sessions/${sessionCode}/reset-votes`, {
+                    method: 'POST',
+                    headers: {
+                        'Accept': 'application/json'
+                    }
+                });
+                
+                logDebugInfo(`Resposta recebida: ${response.status} ${response.statusText}`);
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    logMessage(`Votações da sessão ${sessionCode} foram resetadas`);
+                } else {
+                    logMessage(`Erro ao resetar votações: ${data.error}`);
+                    logDebugInfo(`Erro detalhado: ${JSON.stringify(data)}`);
+                }
+            } catch (error) {
+                logMessage(`Erro na requisição: ${error.message}`);
+                logDebugInfo(`Erro completo: ${error}`);
+            }
+        }
+
+        async function testCurlCreateSession() {
+            const ownerName = document.getElementById('ownerName').value;
+            
+            logDebugInfo(`Testando criação de sessão com curl para proprietário: ${ownerName}`);
+            
+            // Criar um elemento de texto para mostrar o comando curl
+            const curlCommand = `curl -X POST http://localhost:3001/sessions \\
+  -H "Content-Type: application/json" \\
+  -d '{"ownerName": "${ownerName}"}'`;
+            
+            logMessage(`Comando curl para testar:\n${curlCommand}`);
+            
+            // Criar um elemento de texto para mostrar como executar no terminal
+            const terminalCommand = `# Abra um terminal e execute:\n${curlCommand}`;
+            
+            logMessage(`Para executar no terminal:\n${terminalCommand}`);
+            
+            // Exibir instruções para o usuário
+            alert(`Para testar a API diretamente, abra um terminal e execute o comando curl mostrado no log.`);
+        }
+
+        async function showLocalServerInstructions() {
+            const instructions = `
+Para evitar problemas de CORS, você pode servir este arquivo HTML usando um servidor local simples.
+
+Opção 1: Usando Python (mais simples)
+-----------------------------------
+1. Abra um terminal
+2. Navegue até a pasta onde este arquivo HTML está salvo
+3. Execute um dos seguintes comandos:
+
+   Python 3:
+   python -m http.server 8000
+
+   Python 2:
+   python -m SimpleHTTPServer 8000
+
+4. Abra seu navegador e acesse: http://localhost:8000/client.html
+
+Opção 2: Usando Node.js
+----------------------
+1. Instale o pacote 'http-server' globalmente:
+   npm install -g http-server
+
+2. Navegue até a pasta onde este arquivo HTML está salvo
+3. Execute:
+   http-server -p 8000
+
+4. Abra seu navegador e acesse: http://localhost:8000/client.html
+
+Opção 3: Usando PHP
+------------------
+1. Navegue até a pasta onde este arquivo HTML está salvo
+2. Execute:
+   php -S localhost:8000
+
+3. Abra seu navegador e acesse: http://localhost:8000/client.html
+`;
+            
+            logMessage(`Instruções para servidor local:\n${instructions}`);
+            alert(`Instruções para configurar um servidor local foram adicionadas ao log.`);
+        }
+    </script>
+</body>
+</html>

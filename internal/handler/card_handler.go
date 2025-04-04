@@ -11,12 +11,14 @@ import (
 )
 
 type CardHandler struct {
-	service *service.CardService
+	service           *service.CardService
+	websocketService  *service.WebsocketService
 }
 
-func NewCardHandler(service *service.CardService) *CardHandler {
+func NewCardHandler(service *service.CardService, websocketService *service.WebsocketService) *CardHandler {
 	return &CardHandler{
-		service: service,
+		service:           service,
+		websocketService:  websocketService,
 	}
 }
 
@@ -41,6 +43,13 @@ func (h *CardHandler) CreateCard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	card = h.service.CreateCard(card)
+	
+	// Broadcast da atualização para todos os clientes conectados à sessão
+	sessionCode := r.Header.Get("Session-Code")
+	if sessionCode != "" {
+		h.websocketService.BroadcastCard(sessionCode, card)
+	}
+	
 	respondWithJSON(w, http.StatusCreated, card)
 }
 
@@ -58,6 +67,12 @@ func (h *CardHandler) Vote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Broadcast da atualização para todos os clientes conectados à sessão
+	sessionCode := r.Header.Get("Session-Code")
+	if sessionCode != "" {
+		h.websocketService.BroadcastCard(sessionCode, card)
+	}
+
 	respondWithJSON(w, http.StatusOK, card)
 }
 
@@ -69,12 +84,27 @@ func (h *CardHandler) CloseVoting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Broadcast da atualização para todos os clientes conectados à sessão
+	sessionCode := r.Header.Get("Session-Code")
+	if sessionCode != "" {
+		h.websocketService.BroadcastCard(sessionCode, card)
+	}
+
 	respondWithJSON(w, http.StatusOK, card)
 }
 
 func (h *CardHandler) ResetAllVotings(w http.ResponseWriter, r *http.Request) {
 	h.service.ResetAllVotes()
 	cards := h.service.GetAllCards()
+	
+	// Broadcast da atualização para todos os clientes conectados à sessão
+	sessionCode := r.Header.Get("Session-Code")
+	if sessionCode != "" {
+		for _, card := range cards {
+			h.websocketService.BroadcastCard(sessionCode, card)
+		}
+	}
+	
 	respondWithJSON(w, http.StatusOK, cards)
 }
 

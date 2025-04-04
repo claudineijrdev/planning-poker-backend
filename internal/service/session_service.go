@@ -136,3 +136,26 @@ func (s *SessionService) LeaveSession(code string, userID string) error {
 	session.RemoveUser(userID)
 	return s.sessionRepo.UpdateSession(session)
 }
+
+func (s *SessionService) ResetSessionVotes(sessionCode string) ([]domain.Card, error) {
+	session, err := s.sessionRepo.GetSessionByCode(sessionCode)
+	if err != nil {
+		return nil, ErrSessionNotFound
+	}
+
+	// Resetar votos de todos os cards da sessão
+	for i := range session.Cards {
+		session.Cards[i].Votes = []int{}
+		session.Cards[i].Result.Average = 0
+		session.Cards[i].Result.Distribution = make(map[int]int)
+		session.Cards[i].Closed = false
+	}
+
+	// Atualizar a sessão no repositório
+	err = s.sessionRepo.UpdateSession(session)
+	if err != nil {
+		return nil, err
+	}
+
+	return session.Cards, nil
+}
